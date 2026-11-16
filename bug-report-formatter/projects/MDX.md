@@ -18,7 +18,7 @@
 | cloudId | `<YOUR_CLOUD_ID>` |
 | 项目 key | `MDX`（显示名 `McDJP Digital Channels [Shared]`） |
 | issueType | `Bug` |
-| **必填字段** | `project` / `issuetype` / `summary` / **`reporter`** —— ⚠️ MDX 的 `reporter` 是必填，建票时必须带上（默认当前用户 `<your-email>`），漏了会报缺字段 |
+| **必填字段** | `project` / `issuetype` / `summary` / **`reporter`** —— ⚠️ MDX 的 `reporter` 是必填，建票时必须带上（默认 = **正在用 skill 的人自己**：跑 `GET /rest/api/3/myself` 取 `accountId`，**不要写死任何人的邮箱**——共享仓库里写死邮箱，组员开的票会被记到那个人名下），漏了会报缺字段 |
 | Priority 可选值 | Highest / High / Medium / Low / Lowest（实际用 Highest/High/Medium/Low） |
 | components | 有（ANA CMS Coupons Delivery INF JMA KCHP MBE MGMT STAMP WEB）但**近 100 张 bug 只有 2 张填了** → **不填，也不要问用户** |
 | fixVersions / labels | 近 100 张 bug **零使用** → 不填，不要问 |
@@ -143,7 +143,7 @@ Note: <可选，划定范围，如「Only reproduces on iPhone SE (narrow screen
 
 **近 100 张 MDX bug 里 78 张是自己指派给自己**（reporter == assignee）。所以：
 
-- **默认 assignee = reporter = 当前用户**（`<your-email>`），在 4.3 关卡里作为默认值一并抛出，用户不改就这么建。
+- **默认 assignee = reporter = 当前用户**（同上，`/myself` 取 accountId），在 4.3 关卡里作为默认值一并抛出，用户不改就这么建。
 - 要指给开发时才解析姓名。常用 accountId（省一次 lookup）：
 
 | 姓名 | accountId |
