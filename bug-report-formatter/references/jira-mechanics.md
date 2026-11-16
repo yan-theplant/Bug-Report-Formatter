@@ -45,7 +45,25 @@ ffprobe -v error -select_streams a -show_entries stream=index -of csv=p=0 "<in>"
   ```bash
   ffmpeg -v error -i "<in>" -an -c:v copy "<out>"
   ```
-不许上传带声音的视频，即使用户没提。已经传上去了 → 换成静音版并删掉旧附件。
+不许上传带声音的视频，即使用户没提。已经传上去了 → 换成静音版，**按 4.6.2 用新文件名上传并改引用**，最后才删旧附件。
+
+##### 必做：iOS 录屏转成 H.264 才能在 Jira 里播放（**与体积无关**）
+iOS 录屏（`ScreenRecording_*.mov`）是 **HEVC**（`hvc1`，`yuvj420p`），而且是可变帧率。Jira 能存下，但附件只显示一个文件图标或一直「Creating preview...」，内嵌播放器播不了（2026-11 团队实测）。只转 H.264 还不够：第一次转成 High@4.2、保留 iOS 原来的 60fps 可变帧率，照样没有预览；转成 **Main@4.0、固定 30fps** 才能播（同一张票里 Android 那支 H.264 固定 26fps 一直正常）。
+
+上传前先查编码和帧率：
+```bash
+ffprobe -v error -select_streams v:0 -show_entries stream=codec_name,profile,pix_fmt,r_frame_rate,avg_frame_rate -of default=nw=1 "<in>"
+```
+- `codec_name=hevc`，或 `r_frame_rate` ≠ `avg_frame_rate`（可变帧率）→ **转码**（同时去掉音轨）：
+  ```bash
+  ffmpeg -v error -i "<in>" -an -vf "fps=30,scale=in_range=pc:out_range=tv,format=yuv420p" \
+         -c:v libx264 -profile:v main -level 4.0 -crf 20 -r 30 -movflags +faststart "<out>.mp4"
+  ```
+- 已经是 H.264 + 固定帧率 → 不重编码，至少重新封装加 `faststart`（顺便去音轨）：
+  `ffmpeg -v error -i "<in>" -an -c:v copy -movflags +faststart "<out>.mp4"`
+- 上传时带上类型：`-F "file=@<out>.mp4;type=video/mp4"`。
+- **上传后预览要等 Jira 处理一会儿才出来**（实测 19s、约 2MB 的视频也要等）。告诉用户稍等，**不要因为一时没预览就重复上传**。
+- 这一步优先于下面的「≤50MB 传原文件」：「原文件」指的是转好码、去掉音轨后的那份。
 
 ##### Jira 附件上限（**调研结论，2026-09-09 实测**）
 - `/rest/api/3/configuration` **不返回** `maxAttachmentSize`（Cloud 上只有 `attachmentsEnabled: true`），所以**没法用 API 查出上限**，别浪费一次调用。
@@ -96,6 +114,18 @@ curl -s -X POST "https://<site>/rest/api/3/issue/<KEY>/attachments" \
 - `/tmp/jira_auth` 在 4.2 查重时就已生成，此处直接复用 `$AUTH`，不必重建。
 - **整套流程（查重 → 建票 → 附件 → 嵌图 → 链接）全部结束后**再 `rm -f /tmp/jira_auth`，token 不落明文。
 
+#### 4.6.2 替换已内嵌的图 / 视频（补红框、换截图、换静音版）
+
+🔴 **新文件必须用新文件名上传，绝不先删旧附件再传同名文件。**
+> ❌ 2026-10 团队实测（<MDX-xxxx>）：给截图补红框时先删了旧图，再用同一个文件名上传新图。正文里的图片引用仍指向被删那张的 media ID，显示 `Preview unavailable`，只好换名重传。
+
+1. 新文件名加后缀：`<原名>-marked.png` / `<原名>-v2.png` / `<原名>-muted.mp4`。
+2. 上传 → 用 4.7 路径 A 第 2 步把数字 id 换成 media UUID。
+3. GET 正文 ADF → **只把旧图那个 `media` 节点的 `id` 换成新 UUID**，`width` / `height` 改成新文件的真实尺寸，其它节点原样保留 → PUT。
+   不要用路径 B（wiki `!file!` 按文件名引用）来换图：文件名一重名，就可能解析到旧附件。
+4. 读回校验（见 4.7「PUT 后校验」）：正文里每个 media id 都能在当前附件里对上。
+5. 校验通过后才删旧附件；拿不准就别删，多留一个附件没有代价。
+
 ### 4.7 附件内嵌（靠左 + 真实尺寸）
 
 ⚠️ **「上传附件」和「正文里出现这张图」是两件事。** Jira 网页版拖拽一次同时做完两件，走 API 必须分两步——只做 4.6.1 的上传，图只会躺在 Attachments 面板里，正文里看不到。**用户说「放进去 / 放这 / 放上去 / 内嵌 / 嵌进去」都等于要内嵌**，不要停在上传。给了截图/录屏就默认内嵌，**不要问「要不要嵌进正文」**。
@@ -120,7 +150,18 @@ curl -s -X POST "https://<site>/rest/api/3/issue/<KEY>/attachments" \
        "width": 1080, "height": 2424 } } ] }
    ```
    （文件原生 1080×2424；`mediaSingle` 上**不要**写 width。）
-4. **PUT 后 GET 确认** layout 与尺寸生效。
+4. **PUT 后 GET 确认** layout 与尺寸生效，并且**正文里的每个 media id 都指向现存附件**——只看数据结构对不对不够，引用落到已删附件时结构完全正常、网页上却显示 `Preview unavailable`。逐个对：
+   ```bash
+   # 正文里引用的 media UUID
+   curl -s -H "Authorization: Basic $AUTH" "https://<site>/rest/api/3/issue/<KEY>?fields=description" \
+     | jq -r '.. | objects | select(.type=="media") | .attrs.id' | sort -u > /tmp/ref_ids
+   # 现存附件对应的 UUID（逐个走 303 Location）
+   for a in $(curl -s -H "Authorization: Basic $AUTH" "https://<site>/rest/api/3/issue/<KEY>?fields=attachment" | jq -r '.fields.attachment[].id'); do
+     curl -sS -D - -o /dev/null -H "Authorization: Basic $AUTH" "https://<site>/rest/api/3/attachment/content/$a" \
+       | sed -n 's#.*/file/\([0-9a-f-]*\)/binary.*#\1#p'
+   done | sort -u > /tmp/live_ids
+   comm -23 /tmp/ref_ids /tmp/live_ids   # 有输出 = 这些引用指向已不存在的附件
+   ```
 
 #### 路径 B：wiki 语法（正文和媒体一起大改时更省事）
 1. PUT v2 `description`（**wiki 语法**：`*bold*`、`# 有序列表`），**带全文 + 末尾 `!file1!` `!file2!`**——wiki 会替换整段描述。
@@ -135,6 +176,7 @@ curl -s -X POST "https://<site>/rest/api/3/issue/<KEY>/attachments" \
 | 图渲染成**极小一张** | 在 `mediaSingle.attrs` 上写了 `width` / `widthType` | `mediaSingle.attrs` 只留 `{"layout": "align-start"}`；尺寸只放在**内层 `media`** 节点 |
 | 媒体居中 | wiki 转换默认 `layout: "center"` | 一律改 `align-start`（团队约定：**所有图和视频靠左 + 原始尺寸**，正文和评论同一规则） |
 | 之前的图/视频不见了 | PUT 整段覆盖 | 改前先 GET 读回，逐字保留既有 media 节点 |
+| 正文里的图显示 `Preview unavailable` | 引用的 media ID 属于已删除的附件（典型：删旧图后传同名新图） | 按 4.6.2 用新文件名重传，把引用换成新 UUID |
 
 #### 用户直接粘在对话里的图（没有文件路径）
 磁盘上通常没有这个文件。**不要去模拟器/真机重新截图**（画面可能已经变了、设备可能正在跑自动化）。从当前会话的 transcript 里取：`~/.claude/projects/<project-dir>/<session-id>.jsonl`（session id 在 scratchpad 路径里），逐行解析 `message.content[]` 里 `type=="image"` 且 `source.type=="base64"` 的块，取最后一个，按 `media_type` 决定 png/jpg 落盘，再 `sips` 取尺寸走正常上传流程。
