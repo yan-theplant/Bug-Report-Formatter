@@ -118,7 +118,7 @@ Note: <可选，划定范围，如「Only reproduces on iPhone SE (narrow screen
   实例：`<MDX-xxxx>`（5.5.60，In Progress）· `<MDX-xxxx>`（5.5.50）· `<MDX-xxxx>`（5.5.40）· `<MDX-xxxx>`（5.5.30）。
   也有非版本型的专项回归：`[QA] Regression testing for 原産国→原料原産地 changes`（<MDX-xxxx>）。
 - **新 bug → `Blocks` → 回归总票**（已在 <MDX-xxxx> 上读回校验：18 张 bug 均为 `<bug> blocks <MDX-xxxx>`）。这就是 SKILL.md 4.4 的默认方向，直接用。
-- 只是回归中"顺手发现"、不阻塞本次回归的问题，MDX 用 **`Discovery - Connected`** 关联到总票（例 <MDX-xxxx> / 13729 / 13732）。判断：
+- 只是回归中"顺手发现"、不阻塞本次回归的问题，MDX 用 **`Discovery - Connected`** 关联到总票（例 <MDX-xxxx> / <MDX-xxxx> / <MDX-xxxx>）。判断：
   **本次改动范围内的问题 → `Blocks`；范围外撞到的 → `Discovery - Connected`**。不确定就问用户。
 - 回归执行票在 **`QA` 项目**（`[McD] JMA 5.5.60 Regression <QA-xxxx> MOP` 等，以 `Test` 关系挂总票），bug 票**不需要**挂这些。
 - **总票号不要猜**：用这条 curl 现查当前版本的总票，再确认给用户。

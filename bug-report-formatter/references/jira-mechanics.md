@@ -47,6 +47,24 @@ ffprobe -v error -select_streams a -show_entries stream=index -of csv=p=0 "<in>"
   ```
 不许上传带声音的视频，即使用户没提。已经传上去了 → 换成静音版，**按 4.6.2 用新文件名上传并改引用**，最后才删旧附件。
 
+##### 必做：iOS 录屏转成 H.264 才能在 Jira 里播放（**与体积无关**）
+iOS 录屏（`ScreenRecording_*.mov`）是 **HEVC**（`hvc1`，`yuvj420p`），而且是可变帧率。Jira 能存下，但附件只显示一个文件图标或一直「Creating preview...」，内嵌播放器播不了（2026-11 团队实测）。只转 H.264 还不够：第一次转成 High@4.2、保留 iOS 原来的 60fps 可变帧率，照样没有预览；转成 **Main@4.0、固定 30fps** 才能播（同一张票里 Android 那支 H.264 固定 26fps 一直正常）。
+
+上传前先查编码和帧率：
+```bash
+ffprobe -v error -select_streams v:0 -show_entries stream=codec_name,profile,pix_fmt,r_frame_rate,avg_frame_rate -of default=nw=1 "<in>"
+```
+- `codec_name=hevc`，或 `r_frame_rate` ≠ `avg_frame_rate`（可变帧率）→ **转码**（同时去掉音轨）：
+  ```bash
+  ffmpeg -v error -i "<in>" -an -vf "fps=30,scale=in_range=pc:out_range=tv,format=yuv420p" \
+         -c:v libx264 -profile:v main -level 4.0 -crf 20 -r 30 -movflags +faststart "<out>.mp4"
+  ```
+- 已经是 H.264 + 固定帧率 → 不重编码，至少重新封装加 `faststart`（顺便去音轨）：
+  `ffmpeg -v error -i "<in>" -an -c:v copy -movflags +faststart "<out>.mp4"`
+- 上传时带上类型：`-F "file=@<out>.mp4;type=video/mp4"`。
+- **上传后预览要等 Jira 处理一会儿才出来**（实测 19s、约 2MB 的视频也要等）。告诉用户稍等，**不要因为一时没预览就重复上传**。
+- 这一步优先于下面的「≤50MB 传原文件」：「原文件」指的是转好码、去掉音轨后的那份。
+
 ##### Jira 附件上限（**调研结论，2026-09-09 实测**）
 - `/rest/api/3/configuration` **不返回** `maxAttachmentSize`（Cloud 上只有 `attachmentsEnabled: true`），所以**没法用 API 查出上限**，别浪费一次调用。
 - **同站点实测 32.2MB 的 `.MP4` 附件上传成功**（<MDX-xxxx> 上的 `ScreenRecording_09-08-2026 01-38-00_1.MP4`），另有 29.9MB / 13.0MB / 11.2MB 若干。所以「≤50MB 直传」这条阈值是安全的。
